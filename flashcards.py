@@ -1,301 +1,201 @@
-from PySide6 import QtCore, QtGui, QtWidgets
-from PySide6.QtCore import QPropertyAnimation, QEasingCurve, Property
-import random
+import customtkinter as ctk
 import json
+import os
+import random
+from tkinter import messagebox
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-class ModernStyle:
-    # Dark theme colors
-    DARK_BACKGROUND = "#1E1E1E"
-    DARK_DARKER_BACKGROUND = "#171717"
-    DARK_TEXT = "#FFFFFF"
-    DARK_BORDER = "#333333"
+DATA_FILE = "flashter_data.json"
 
-    # Light theme colors
-    LIGHT_BACKGROUND = "#FFFFFF"
-    LIGHT_DARKER_BACKGROUND = "#F0F0F0"
-    LIGHT_TEXT = "#000000"
-    LIGHT_BORDER = "#CCCCCC"
-
-    # Common colors
-    ACCENT = "#007AFF"
-    SECONDARY_ACCENT = "#FF2D55"
-
-    @staticmethod
-    def get_stylesheet(is_dark_mode=True):
-        bg = ModernStyle.DARK_BACKGROUND if is_dark_mode else ModernStyle.LIGHT_BACKGROUND
-        darker_bg = ModernStyle.DARK_DARKER_BACKGROUND if is_dark_mode else ModernStyle.LIGHT_DARKER_BACKGROUND
-        text = ModernStyle.DARK_TEXT if is_dark_mode else ModernStyle.LIGHT_TEXT
-        border = ModernStyle.DARK_BORDER if is_dark_mode else ModernStyle.LIGHT_BORDER
-
-        return f"""
-        QWidget {{
-            background-color: {bg};
-            color: {text};
-            font-family: 'Segoe UI', Arial;
-            font-size: 12px;
-        }}
-
-        QPushButton {{
-            background-color: {ModernStyle.ACCENT};
-            border: 2px solid {ModernStyle.ACCENT};
-            border-radius: 8px;
-            padding: 10px 20px;
-            color: white;
-            font-weight: bold;
-            font-size: 13px;
-            min-width: 100px;
-        }}
-
-        QPushButton:hover {{
-            background-color: #0056b3;
-            border-color: #0056b3;
-        }}
-
-        QLineEdit {{
-            background-color: {darker_bg};
-            border: 2px solid {border};
-            border-radius: 6px;
-            padding: 8px;
-            color: {text};
-            font-size: 14px;
-        }}
-
-        QGraphicsView {{
-            background-color: {darker_bg};
-            border: 2px solid {border};
-            border-radius: 12px;
-            padding: 20px;
-            margin: 10px;
-        }}
-
-        QSlider {{
-            height: 24px;
-            background: transparent;
-        }}
-
-        QSlider::groove:horizontal {{
-            height: 4px;
-            background: {darker_bg};
-            border-radius: 2px;
-            margin: 0px;
-        }}
-
-        QSlider::handle:horizontal {{
-            background: {ModernStyle.ACCENT};
-            border: 2px solid {ModernStyle.ACCENT};
-            width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            margin: -8px 0;
-        }}
-
-        QSlider::handle:horizontal:hover {{
-            background: #0056b3;
-            border-color: #0056b3;
-        }}
-
-        QSlider::sub-page:horizontal {{
-            background: {ModernStyle.ACCENT};
-            border-radius: 2px;
-        }}
-
-        QSlider::add-page:horizontal {{
-            background: {border};
-            border-radius: 2px;
-        }}
-        """
-
-class FlashcardView(QtWidgets.QGraphicsView):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.scene = QtWidgets.QGraphicsScene(self)
-        self.setScene(self.scene)
-        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.setRenderHint(QtGui.QPainter.Antialiasing)
-
-        # Create text item
-        self.text_item = self.scene.addText("")
-        font = QtGui.QFont("Segoe UI", 14)
-        font.setBold(True)
-        self.text_item.setFont(font)
-        self.text_item.setDefaultTextColor(QtGui.QColor(ModernStyle.DARK_TEXT))
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.scene.setSceneRect(self.rect())
-        self.centerText()
-
-    def setText(self, text):
-        self.text_item.setPlainText(text)
-        self.centerText()
-
-    def centerText(self):
-        self.text_item.setPos(
-            (self.width() - self.text_item.boundingRect().width()) / 2,
-            (self.height() - self.text_item.boundingRect().height()) / 2
-        )
-
-class FlashcardApp(QtWidgets.QWidget):
+class FlashterApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.flashcards = []
-        self.current_index = 0
-        self.showing_answer = False
-        self._rotation = 0
-        self.init_ui()
+        self.title("FLASHTER")
+        self.geometry("800x600")
 
-    @Property(float)
-    def rotation(self):
-        return self._rotation
+        self.study_sets = {}
+        self.quiz_scores = {}
+        self.load_data()
 
-    @rotation.setter
-    def rotation(self, value):
-        self._rotation = value
-        self.card_view.rotate(value - self.card_view.rotation())
+        self.main_frame = ctk.CTkFrame(self)
+        self.main_frame.pack(pady=20, padx=20, fill="both", expand=True)
 
-    def init_ui(self):
-        self.setWindowTitle('Modern Flashcards')
-        self.setMinimumSize(600, 400)
-        self.setStyleSheet(ModernStyle.get_stylesheet())
+        self.title_label = ctk.CTkLabel(self.main_frame, text="FLASHTER", font=("Impact", 36))
+        self.title_label.pack(pady=20)
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
 
-        # Add theme toggle slider
-        theme_layout = QtWidgets.QHBoxLayout()
-        theme_label = QtWidgets.QLabel("Dark Mode")
-        self.theme_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.theme_slider.setMaximum(1)
-        self.theme_slider.setMinimum(0)
-        self.theme_slider.setValue(1)  # Start with dark mode
-        self.theme_slider.setFixedWidth(40)  # Make slider more compact
-        self.theme_slider.setFixedHeight(24)  # Match height with the styling
-        self.theme_slider.valueChanged.connect(self.toggle_theme)
+        self.mode_toggle = ctk.CTkSwitch(self.main_frame, text="Dark Mode", command=self.toggle_mode)
+        self.mode_toggle.pack(pady=10)
 
-        theme_layout.addWidget(theme_label)
-        theme_layout.addWidget(self.theme_slider)
-        theme_layout.addStretch()
-        theme_layout.setContentsMargins(0, 0, 0, 10)  # Add some bottom margin
+        self.content_frame = ctk.CTkScrollableFrame(self.main_frame)
+        self.content_frame.pack(pady=10, padx=10, fill="both", expand=True)
 
-        layout.addLayout(theme_layout)
+        self.back_button = ctk.CTkButton(self.main_frame, text="Back", command=self.create_main_menu)
+        self.create_main_menu()
 
-        self.card_view = FlashcardView()
-        self.card_view.setMinimumHeight(200)
-        layout.addWidget(self.card_view)
+    def toggle_mode(self):
+        if ctk.get_appearance_mode() == "Dark":
+            ctk.set_appearance_mode("Light")
+        else:
+            ctk.set_appearance_mode("Dark")
 
-        button_layout = QtWidgets.QHBoxLayout()
-        self.prev_btn = QtWidgets.QPushButton("Previous")
-        self.flip_btn = QtWidgets.QPushButton("Flip")
-        self.next_btn = QtWidgets.QPushButton("Next")
-        self.add_btn = QtWidgets.QPushButton("Add Card")
+    def load_data(self):
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as file:
+                data = json.load(file)
+                self.study_sets = data.get("study_sets", {})
+                self.quiz_scores = data.get("quiz_scores", {})
 
-        for btn in [self.prev_btn, self.flip_btn, self.next_btn, self.add_btn]:
-            button_layout.addWidget(btn)
+    def save_data(self):
+        with open(DATA_FILE, "w") as file:
+            json.dump({"study_sets": self.study_sets, "quiz_scores": self.quiz_scores}, file, indent=4)
 
-        layout.addLayout(button_layout)
+    def create_main_menu(self):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack_forget()
 
-        self.prev_btn.clicked.connect(self.previous_card)
-        self.flip_btn.clicked.connect(self.start_flip_animation)
-        self.next_btn.clicked.connect(self.next_card)
-        self.add_btn.clicked.connect(self.show_add_dialog)
+        buttons = [
+            ("Create Flashcard Set", self.create_flashcard_set),
+            ("Access Flashcard Sets", self.access_flashcard_sets),
+            ("Take Quiz", self.show_choose_quiz_set),
+            ("View Progress", self.show_progress),
+            ("Exit", self.quit)
+        ]
 
-        self.setLayout(layout)
+        for text, command in buttons:
+            button = ctk.CTkButton(self.content_frame, text=text, command=command)
+            button.pack(pady=10)
 
-        self.add_flashcard("What is Python?", "Python is a high-level programming language.")
-        self.add_flashcard("What is PySide6?", "A set of Qt bindings for Python to create GUI applications.")
-        self.update_display()
+    def clear_frame(self, frame):
+        for widget in frame.winfo_children():
+            widget.destroy()
 
-    def toggle_theme(self):
-        is_dark = self.theme_slider.value() == 1
-        self.setStyleSheet(ModernStyle.get_stylesheet(is_dark))
-        text_color = ModernStyle.DARK_TEXT if is_dark else ModernStyle.LIGHT_TEXT
-        self.card_view.text_item.setDefaultTextColor(QtGui.QColor(text_color))
+    def create_flashcard_set(self):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
 
-    def add_flashcard(self, question, answer):
-        self.flashcards.append({"question": question, "answer": answer})
+        set_name_label = ctk.CTkLabel(self.content_frame, text="Set Name:")
+        set_name_label.pack()
+        set_name_entry = ctk.CTkEntry(self.content_frame)
+        set_name_entry.pack()
 
-    def update_display(self):
-        if not self.flashcards:
-            self.card_view.setText("No flashcards available")
+        flashcards = []
+        flashcard_list = ctk.CTkTextbox(self.content_frame, height=200, width=300, state="disabled")
+        flashcard_list.pack()
+
+        def add_flashcard():
+            question, answer = question_entry.get(), answer_entry.get()
+            if question and answer:
+                flashcards.append({"question": question, "answer": answer})
+                question_entry.delete(0, 'end')
+                answer_entry.delete(0, 'end')
+                flashcard_list.configure(state="normal")
+                flashcard_list.insert("end", f"Q: {question}\nA: {answer}\n\n")
+                flashcard_list.configure(state="disabled")
+
+        question_label = ctk.CTkLabel(self.content_frame, text="Question:")
+        question_label.pack()
+        question_entry = ctk.CTkEntry(self.content_frame)
+        question_entry.pack()
+
+        answer_label = ctk.CTkLabel(self.content_frame, text="Answer:")
+        answer_label.pack()
+        answer_entry = ctk.CTkEntry(self.content_frame)
+        answer_entry.pack()
+
+        ctk.CTkButton(self.content_frame, text="Add Flashcard", command=add_flashcard).pack()
+        ctk.CTkButton(self.content_frame, text="Save Set", command=lambda: self.save_flashcard_set(set_name_entry.get(), flashcards)).pack()
+
+    def save_flashcard_set(self, set_name, flashcards):
+        if set_name and flashcards:
+            self.study_sets[set_name] = flashcards
+            self.save_data()
+            self.create_main_menu()
+
+    def access_flashcard_sets(self):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
+
+        for set_name in self.study_sets:
+            ctk.CTkButton(self.content_frame, text=set_name, command=lambda name=set_name: self.view_flashcard_set(name)).pack(pady=5)
+
+    def view_flashcard_set(self, set_name):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
+
+        flashcards = self.study_sets[set_name]
+        current_card = 0
+
+        card_text = ctk.CTkLabel(self.content_frame, text="", font=("Arial", 18))
+        card_text.pack()
+
+        def show_card(index, show_answer=False):
+            card = flashcards[index]
+            card_text.configure(text=f"A: {card['answer']}" if show_answer else f"Q: {card['question']}")
+
+        ctk.CTkButton(self.content_frame, text="Flip", command=lambda: show_card(current_card, True)).pack()
+        show_card(current_card)
+
+    def show_choose_quiz_set(self):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
+
+        for set_name in self.study_sets:
+            ctk.CTkButton(self.content_frame, text=f"Quiz: {set_name}",
+                          command=lambda name=set_name: self.take_quiz(name)).pack(pady=5)
+
+    def take_quiz(self, set_name):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
+
+        flashcards = self.study_sets[set_name]
+        random.shuffle(flashcards)
+        total_questions = len(flashcards)
+        current_question, score = 0, 0
+
+        question_label = ctk.CTkLabel(self.content_frame, text="", font=("Arial", 16))
+        question_label.pack()
+        answer_entry = ctk.CTkEntry(self.content_frame)
+        answer_entry.pack()
+
+        def check_answer():
+            nonlocal current_question, score
+            if answer_entry.get().strip().lower() == flashcards[current_question]["answer"].lower():
+                score += 1
+            current_question += 1
+            if current_question < total_questions:
+                question_label.configure(text=flashcards[current_question]["question"])
+            else:
+                messagebox.showinfo("Quiz Completed", f"Score: {score}/{total_questions}")
+                self.quiz_scores[set_name] = score
+                self.save_data()
+                self.create_main_menu()
+
+        ctk.CTkButton(self.content_frame, text="Submit", command=check_answer).pack()
+        question_label.configure(text=flashcards[current_question]["question"])
+
+    def show_progress(self):
+        self.clear_frame(self.content_frame)
+        self.back_button.pack(side="top")
+
+        if not self.quiz_scores:
+            ctk.CTkLabel(self.content_frame, text="No progress data available").pack()
             return
 
-        card = self.flashcards[self.current_index]
-        text = card["answer"] if self.showing_answer else card["question"]
-        self.card_view.setText(text)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        sets = list(self.quiz_scores.keys())
+        scores = list(self.quiz_scores.values())
 
-    def previous_card(self):
-        if self.flashcards:
-            self.current_index = (self.current_index - 1) % len(self.flashcards)
-            self.showing_answer = False
-            self.update_display()
+        ax.bar(sets, scores, color="blue")
+        ax.set_xlabel("Flashcard Sets")
+        ax.set_ylabel("Score")
+        ax.set_title("Quiz Scores")
 
-    def next_card(self):
-        if self.flashcards:
-            self.current_index = (self.current_index + 1) % len(self.flashcards)
-            self.showing_answer = False
-            self.update_display()
+        canvas = FigureCanvasTkAgg(fig, master=self.content_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack()
 
-    def start_flip_animation(self):
-        self.anim = QPropertyAnimation(self, b"rotation")
-        self.anim.setDuration(400)
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(180)
-        self.anim.setEasingCurve(QEasingCurve.OutCubic)
-        self.anim.finished.connect(self._on_flip_finished)
-        self.anim.start()
-
-    def _on_flip_finished(self):
-        self.showing_answer = not self.showing_answer
-        self.update_display()
-        self._rotation = 0
-        self.card_view.setRotation(0)
-
-    def show_add_dialog(self):
-        dialog = AddCardDialog(self)
-        if dialog.exec():
-            question, answer = dialog.get_card_data()
-            self.add_flashcard(question, answer)
-            self.update_display()
-
-
-class AddCardDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.init_ui()
-
-    def init_ui(self):
-        self.setWindowTitle("Add New Flashcard")
-        layout = QtWidgets.QVBoxLayout()
-
-        self.question_edit = QtWidgets.QLineEdit()
-        self.question_edit.setPlaceholderText("Enter question")
-        self.answer_edit = QtWidgets.QLineEdit()
-        self.answer_edit.setPlaceholderText("Enter answer")
-
-        layout.addWidget(QtWidgets.QLabel("Question:"))
-        layout.addWidget(self.question_edit)
-        layout.addWidget(QtWidgets.QLabel("Answer:"))
-        layout.addWidget(self.answer_edit)
-
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.setLayout(layout)
-
-    def get_card_data(self):
-        return self.question_edit.text(), self.answer_edit.text()
-
-def main():
-    app = QtWidgets.QApplication([])
-    window = FlashcardApp()
-    window.show()
-    app.exec()
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    app = FlashterApp()
+    app.mainloop()
